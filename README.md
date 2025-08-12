@@ -74,7 +74,7 @@
 
 ---
 
-## Tunable Inputs (Matches Current Script)
+## Tunable Inputs
 
 ### Core & Visualization
 | Input | Default | What it Does | Notes |

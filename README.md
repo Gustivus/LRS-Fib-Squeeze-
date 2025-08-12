@@ -14,6 +14,7 @@
 - Projects **Fibonacci levels** on the slope range for visual reference.
 - Detects **inversions** (peak→turn down, trough→turn up) on a smoothed histogram and **shades** those zones on the histogram panel.
 - Provides **expansion** and **inversion** signals; also computes **reversal block** masks (cool-down windows) without altering visuals.
+- Code for use as **trendspider** indicator.
 
 ---
 

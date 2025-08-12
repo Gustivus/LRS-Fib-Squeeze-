@@ -1,212 +1,181 @@
-# LRS Fib Squeeze+ Indicator
+# LRS Fib Squeeze+
 
-## Overview
-The **LRS Fib Squeeze+** is a volatility compression and momentum expansion indicator that combines:
+> **Volatility-compression → momentum-expansion** indicator based on Linear Regression Slope (LRS), with adaptive squeeze detection, anti-chop histogram logic, slope variability bands, Fibonacci slope levels, and inversion detection/shading.
 
-- **Linear Regression Slope (LRS)** for trend velocity
-- **Adaptive volatility compression detection** for squeeze states
-- **Momentum histogram with direction bias**
-- **Variability bands (StdDev or MAD)**
-- **Fibonacci-projected slope levels** for slope retracements
+---
 
-This indicator is designed to **identify moments when volatility contracts (“squeeze”)** and prepare for **explosive breakouts or breakdowns** when the compression ends.
+## Summary
+
+- **Measures trend velocity** via **Linear Regression Slope (LRS)** over `Length`.
+- Tracks the **range of slope** and **normalizes** it by ATR → a scale-free compression gauge.
+- Detects **Squeeze On** when normalized slope variability is **below** a fixed or **adaptive** threshold.
+- Builds a **directional histogram** from compression magnitude × slope momentum sign (using anti-chop logic).
+- Draws **variability bands** (StdDev or MAD) around the slope mean as context.
+- Projects **Fibonacci levels** on the slope range for visual reference.
+- Detects **inversions** (peak→turn down, trough→turn up) on a smoothed histogram and **shades** those zones on the histogram panel.
+- Provides **expansion** and **inversion** signals; also computes **reversal block** masks (cool-down windows) without altering visuals.
+
+---
+
+## Theoretical Foundation
+
+1. **Volatility clustering**: Markets cycle between **compression** and **expansion**. Low volatility often precedes a large move.
+2. **LRS instead of raw price range**: Using **slope** (trend velocity) helps distinguish directional expansion from sideways volatility changes (a common weakness of pure BB/KC squeezes).
+3. **Normalization (ATR)**: Makes slope-range comparable across instruments/timeframes.
+4. **Adaptive thresholds**: z-score/percentile modes scale with regime shifts; fixed mode stays simple.
+5. **Anti-chop histogram**: Deadzone + EMA magnitude smoothing + majority sign vote + sticky sign → fewer 1–2 bar flips.
+6. **Inversion detection**: Finds **recent local maxima/minima** in momentum that **turn** with a minimum magnitude; these areas are shaded for focus.
+
+---
+
+## Use Cases
+
+- **Pre-breakout timing**: Trade as the squeeze releases into expansion with directional bias.
+- **Trend continuation**: Use positive/negative histogram with band context and Fib slope levels.
+- **Exits/Pauses**: Inversion shading can warn of a top/bottom forming (momentum cresting).
+- **Filter for systems**: Use Squeeze On/Off and Expansion signals as **logic builder** conditions.
 
 ---
 
 ## Methodology
 
-### 1. Linear Regression Slope (LRS)
-The **LRS** measures the slope of a least-squares regression line fitted to recent price data. This slope serves as a **trend velocity proxy** — positive slope means upward bias, negative slope means downward bias.
-
-### 2. Normalized Slope Range
-The rolling **highest** and **lowest** slopes in the lookback window define a slope range. This range is **normalized** by the ATR of price to make it comparable across instruments and volatility regimes.
-
-### 3. Squeeze Detection
-A squeeze state is detected when the **normalized slope range** is below a threshold:
-- **Fixed Threshold:** Compares directly to a static level.
-- **Adaptive (z-score):** Measures how many standard deviations below the mean the slope range is.
-- **Adaptive (percentile):** Measures percentile rank within the recent window.
-
-When the slope range is compressed enough, the indicator enters **“Squeeze On”** mode, often preceding expansion.
-
-### 4. Momentum Direction & Histogram
-A momentum proxy is computed from **slope - EMA(slope, 2)**.
-- **Magnitude:** Strength of compression
-- **Sign:** Direction of momentum
-- The histogram shows this signed magnitude, scaled and optionally smoothed.
-
-When the histogram crosses zero, momentum is flipping from positive to negative or vice versa — often an early warning of trend changes.
-
-### 5. Variability Bands
-Around the slope mean, variability bands (StdDev or MAD) are plotted. When the slope pushes outside these bands after a squeeze, it often signals sustained expansion.
-
-### 6. Fibonacci Slope Levels
-Fibonacci retracement levels (23.6%, 38.2%, 50%, 61.8%, 78.6%) are calculated on the slope range. These can serve as **reference zones** for slope pullbacks or acceleration points.
+1. **LRS**: Linear regression slope of selected `Price source` over `Length`.
+2. **Slope Range**: Rolling `highest(slope, Length)` − `lowest(slope, Length)`.
+3. **Normalize** by ATR of price (same `Length`) → **normalizedRange**.
+4. **Squeeze Detection**  
+   - **Fixed**: `normalizedRange < squeezeThreshold`  
+   - **Adaptive (z-score)**: `z = (normalizedRange - mean) / stdev`; squeeze when `z < zCut`  
+   - **Adaptive (percentile)**: squeeze when rank ≤ `pctCut`
+5. **Histogram (anti-chop)**  
+   - **Magnitude** = |squeezeBase| (compression/expansion magnitude)  
+   - **Sign** = sign of `slope - EMA(slope, 2)`  
+   - **Deadzone** near 0, **EMA** magnitude smooth, **majority vote** over `N` bars, **sticky** last non-zero decision.
+6. **Bands**: Slope mean ± `bandK` × (StdDev or MAD).  
+7. **Fibs on slope range**: 23.6/38.2/50/61.8/78.6%.
+8. **Inversions (chop-tolerant)** on a **smoothed histogram** (`invSmoothN`):  
+   - Detect **peak → turn down** (Inversion Down) and **trough → turn up** (Inversion Up) if:  
+     recent extreme within **tolerance %**, **recent** (≤ `invMaxAge`), **min height** (|hist| ≥ `invMinPk`), and **min turn** (|Δ| ≥ `invMinTurn`).  
+   - **Shade** the next `invShadeBars` bars above/below zero line on histogram panel.
+9. **Reversal Blocking (computed)**: Cool-down windows that **suppress opposite-direction signals** for `revBlock` bars after an event (does **not** change visuals).
 
 ---
 
-## Use Cases
-- **Breakout Trading:** Identify pre-breakout compressions and expansion triggers.
-- **Swing Entries:** Use strong expansion signals to time entries aligned with trend.
-- **Reversal Detection:** Look for histogram inversions and band breaches as reversal clues.
-- **Volatility Regime Shifts:** Anticipate changes in volatility structure.
+## Signals
 
-### 1. Volatility Compression & Breakout Theory
-Markets tend to **cycle between contraction and expansion**:
-- **Compression:** Volatility dries up, ranges get smaller, order books tighten. This often represents balance between buyers and sellers.
-- **Expansion:** A new imbalance occurs, volatility spikes, and a directional move begins.
+- **Squeeze On** / **Squeeze Off**
+- **Expansion Up** (histogram flips `≤ 0 → > 0`)
+- **Expansion Down** (histogram flips `≥ 0 → < 0`)
+- **Expansion Up (strong)** (flip up **and** |hist| ≥ `Min Hist Impulse`)
+- **Expansion Down (strong)**
+- **Inversion Up** (trough → turn up)
+- **Inversion Down** (peak → turn down)
 
-Statistically, volatility clustering means that **low volatility periods are more likely to be followed by high volatility** than vice versa. Catching the **transition** can offer low-risk/high-reward trades.
-
----
-
-### 2. Why Linear Regression Slope?
-Traditional squeeze indicators (like **Bollinger Bands / Keltner Channels**) measure volatility based on **price ranges** alone.  
-LRS instead measures the **trend velocity** of price movement, not just its dispersion.  
-
-**Advantages:**
-- Captures directional bias earlier than BB/KC squeezes.
-- Filters sideways chop better because slope changes precede band expansion.
-- Can identify squeezes inside trending moves, not just range-bound ones.
+> **Note on reversal blocking**: The script computes blocked versions internally (cool-downs), but **does not register** them as separate signals. Use the raw signals above in the logic builder, and apply blocking in your strategy rules if desired.
 
 ---
 
-### 3. Why Fibonacci Levels?
-Fibonacci ratios (23.6%, 38.2%, 50%, 61.8%, 78.6%) are widely used in trading to measure **retracements and extensions**. Here they are applied to the **slope range**, not price:
-- The slope retracing to a fib level can indicate a “healthy pullback” before trend continuation.
-- Helps set **context** for whether the slope is approaching overextension or support levels.
+## Tunable Inputs (Matches Current Script)
+
+### Core & Visualization
+| Input | Default | What it Does | Notes |
+|---|---:|---|---|
+| **Length** | 20 | LRS lookback and slope range window | Larger = smoother, slower |
+| **Price source** | close | Price series for LRS | e.g., close/hl2/etc. |
+| **Slope Line Thickness** | 3 | Visual width | Cosmetic |
+
+### Slope Variability Bands
+| Input | Default | What it Does | Notes |
+|---|---:|---|---|
+| **Slope Vol Lookback** | 20 | Lookback for bands | StdDev or MAD |
+| **Slope Band Mult** | 2.0 | Multiplier for band width | Wider = looser |
+| **Band Type** | StdDev | Variability method | MAD is robust to outliers |
+| **MAD Len** | 20 | EMA len for MAD | Only used in MAD mode |
+
+### Squeeze Detection
+| Input | Default | What it Does | Notes |
+|---|---:|---|---|
+| **Threshold Mode** | Adaptive (z-score) | Fixed / z-score / percentile | Choose method |
+| **Squeeze Threshold (fixed)** | 0.30 | Fixed cutoff for normalizedRange | Only in Fixed mode |
+| **Adaptive Lookback (z)** | 100 | z-score window | Larger = smoother |
+| **Adaptive Cut (z)** | −0.5 | z-score cutoff for squeeze | Lower = stricter |
+| **Percentile Lookback** | 100 | Rank window | Percentile mode only |
+| **Percentile Cut (0..1)** | 0.20 | Rank cutoff | Lower = stricter |
+
+### Histogram (Anti-Chop) & Expansion
+| Input | Default | What it Does | Notes |
+|---|---:|---|---|
+| **Hist Deadzone** | 0.05 | Zeroes tiny values | Removes micro-flips |
+| **Hist Smooth EMA** | 3 | Smooths magnitude | Not sign |
+| **Sign Vote Window** | 3 | Majority window (N) | 1–5 recommended |
+| **Sign Vote Majority %** | 0.60 | Fraction of bars needed to flip | 0.6–0.8 for calm |
+| **Paint Smoothed Histogram** | On | Use smoothed series for paint | Cosmetic |
+| **Use Smoothed Hist For Signals** | On | Use smoothed series in logic | Stability ↑ |
+| **Min Hist Impulse** | 0.15 | “Strong” expansion threshold | Filter weak flips |
+| **Hist Scale** | 0.20 | Visual scale | Cosmetic |
+| **Hist Cap (abs)** | 3.0 | Visual clamp | Cosmetic |
+
+### Inversion Detection & Shading
+| Input | Default | What it Does | Notes |
+|---|---:|---|---|
+| **Inversion Smooth EMA** | 3 | Smooths histogram for detection | Noise reduction |
+| **Inversion Lookback** | 8 | Window to find recent extreme | Local peak/trough |
+| **Inversion Min \|Hist\|** | 0.40 | Min height at extreme | Strength filter |
+| **Inversion Min Turn (abs)** | 0.08 | Min change from extreme to next bar | Turn filter |
+| **Inversion Peak Tolerance %** | 0.15 | Extreme proximity tolerance | Within X% of max/min |
+| **Inversion Max Age (bars)** | 3 | Max bars since extreme | Recency constraint |
+| **Inversion Shade Bars** | 2 | Shade duration after inversion | Visual |
+| **Inversion Shade Height** | 0 | Shade height (0 → use `Hist Cap`) | Visual |
+
+### Reversal Block (Computed Cool-Down)
+| Input | Default | What it Does | Notes |
+|---|---:|---|---|
+| **Reversal Block Bars** | 0 | Suppresses opposite-direction signals for N bars | Does **not** change visuals or registered signals; apply masks in strategy rules |
+
+### Fibonacci Slope Levels
+| Input | Default | What it Does | Notes |
+|---|---:|---|---|
+| **Fib 23.6% / 38.2% / 50% / 61.8% / 78.6%** | 0.236–0.786 | Visual reference levels on slope range | Context only
 
 ---
 
-### 4. Adaptive Thresholds vs. Fixed Thresholds
-While a fixed compression threshold works, volatility regimes change:
-- Adaptive modes (z-score or percentile) adjust thresholds dynamically.
-- Makes the squeeze detection robust to different instruments, timeframes, and market phases.
+## How to Read It
+
+1. **Squeeze On (red slope)** → watch for **Expansion** signals.
+2. **Expansion Up/Down** → momentum flips and leaves deadzone; “Strong” when magnitude ≥ threshold.
+3. **Bands** → Context for mean reversion vs acceleration.
+4. **Inversion shading** → Crimson (peak→down), Seagreen (trough→up). Use as **exit caution** or countertrend probe, especially after extended runs.
 
 ---
 
-### 5. Histogram Direction & Smoothing
-The histogram represents **signed compression magnitude**:
-- Height = Strength of squeeze or expansion
-- Sign = Direction bias (positive = bullish, negative = bearish)
+## Differences vs BB/KC Squeeze
 
-Smoothing logic (Sign Vote, Deadzone, Reversal Block) prevents noisy one-bar flips that plague other squeeze methods.
----
-
-## Tunable Inputs & Instructions
-
-| **Input Name** | **Type** | **Default** | **Description** | **How to Use** |
-|----------------|----------|-------------|------------------|----------------|
-| **Length** | Number | 20 | Lookback for slope calculation and range analysis. | Larger values = smoother signals, slower response; smaller values = more sensitive. |
-| **Price Source** | Select | Close | Which price series to measure slope on. | Typical = Close; can use HL2 or other averages for smoothing. |
-| **Fib Levels (23.6%–78.6%)** | Number | 0.236–0.786 | Fibonacci levels on slope range. | Mostly visual guides for slope retracements. Adjust rarely. |
-| **Squeeze Threshold (Fixed)** | Number | 0.30 | Static compression cutoff for “Squeeze On” in Fixed mode. | Lower = more squeezes, higher = fewer but stronger. |
-| **Slope Line Thickness** | Number | 3 | Width of LRS slope plot. | Visual preference only. |
-| **Slope Vol Lookback** | Number | 20 | Lookback for band variability calculations. | Higher = wider bands, slower reaction. |
-| **Slope Band Mult** | Number | 2.0 | Multiplier for variability bands. | Larger = looser bands, smaller = tighter. |
-| **Band Type** | Select | StdDev / MAD | Type of variability calculation. | StdDev = more responsive; MAD = more robust to outliers. |
-| **MAD Len** | Number | 20 | Lookback for MAD calculation if MAD mode selected. | Only affects MAD band mode. |
-| **Threshold Mode** | Select | Fixed / Adaptive (z-score) / Adaptive (percentile) | How squeeze compression is measured. | Adaptive modes self-adjust to volatility shifts. |
-| **Adaptive Lookback (z)** | Number | 100 | Window for z-score calculation in Adaptive mode. | Longer = slower threshold adaptation. |
-| **Adaptive Cut (z)** | Number | -0.5 | Z-score cutoff for “Squeeze On.” | Lower = fewer squeezes, higher = more frequent. |
-| **Percentile Lookback** | Number | 100 | Window for percentile-based threshold. | Only in percentile mode. |
-| **Percentile Cut (0..1)** | Number | 0.20 | Percentile rank cutoff for “Squeeze On.” | Lower = fewer squeezes. |
-| **Min Hist Impulse** | Number | 0.15 | Minimum histogram magnitude for “strong” expansion signals. | Filters out weak/noisy flips. |
-| **Hist Scale** | Number | 0.20 | Multiplier for histogram magnitude. | For visual sizing only. |
-| **Hist Cap (abs)** | Number | 3.0 | Max absolute histogram height. | Clamps extreme values. |
-| **Hist Deadzone** | Number | 0.05 | Ignores small histogram values to reduce noise. | Increase to smooth more aggressively. |
-| **Hist Smooth EMA** | Number | 3 | EMA smoothing length for histogram magnitude. | Higher = smoother, slower. |
-| **Sign Vote Window** | Number | 3 | Number of bars to consider for sign voting. | Higher = more stable histogram direction. |
-| **Sign Vote Majority %** | Number | 0.60 | Fraction of bars in the vote window that must agree to flip sign. | Higher = stricter flips. |
-| **Reversal Block Bars** | Number | 0 | Prevents flips within X bars after last flip. | Useful to avoid whipsaws. |
+| Aspect | LRS Fib Squeeze+ | BB/KC Squeeze |
+|---|---|---|
+| **Driver** | Trend velocity (LRS) | Price dispersion (StdDev/ATR) |
+| **Direction** | Integrated via slope momentum | Needs extra momentum filter |
+| **Squeeze Threshold** | Fixed or Adaptive (z/percentile) | Usually fixed ratio |
+| **Noise Handling** | Deadzone + EMA + Sign Vote + Sticky | Typically none |
+| **Extras** | Fib slope levels, inversion shading | Not typical |
 
 ---
 
-## Signals Generated
-- **Squeeze On** — Volatility compression detected.
-- **Squeeze Off** — Compression ended.
-- **Expansion Up** — Histogram flips from ≤0 to >0.
-- **Expansion Down** — Histogram flips from ≥0 to <0.
-- **Expansion Up (Strong)** — Expansion Up with magnitude ≥ Min Hist Impulse.
-- **Expansion Down (Strong)** — Expansion Down with magnitude ≥ Min Hist Impulse.
+## Caveats
+
+- **Not a standalone system**: Use with structure/volume and risk management.
+- **Parameters are regime-sensitive**: Intraday vs daily may need different Deadzone/Vote/Impulse.
+- **Inversion ≠ immediate reversal**: It flags **momentum crests**, not guaranteed price tops/bottoms.
+- **Reversal Block** doesn’t change what you see: It’s a **logic-side** guardrail for backtests/bots.
 
 ---
 
-## Practical Trading Tips
-1. **Squeeze → Expansion:** Look for price breakouts coinciding with **Squeeze Off + Strong Expansion** signals.
-2. **Avoid Chop:** Increase **Sign Vote Window** or **Deadzone** to avoid one-bar flips in choppy conditions.
-3. **Combine With Price Structure:** Use horizontal levels, order blocks, or VWAP as confirmation.
-4. **Band Breaches Matter:** A slope break beyond upper/lower bands post-squeeze often signals trend continuation.
+## Workflow (Example)
+
+1. Scan for **Squeeze On**.
+2. Wait for **Expansion Up/Down** (strong preferred) with price confirmation.
+3. Manage with bands/Fibs; **exit or reduce** on inversion shading or opposite expansion.
 
 ---
-
-## Example Workflow
-1. Wait for **Squeeze On** → indicates low-volatility compression.
-2. When histogram flips to positive/negative and **Squeeze Off** occurs → watch for **Strong Expansion**.
-3. Enter trade in direction of expansion if price action supports it.
-4. Use opposite histogram flip or band re-entry as exit criteria.
-
----
-## FAQ & Caveats
-
-### **Q1: Why not just use Bollinger/Keltner squeeze?**
-BB/KC squeezes work well in many contexts, but they:
-- Rely solely on volatility bands
-- Need a separate momentum filter
-- Struggle to detect squeezes during ongoing trends  
-**LRS Fib Squeeze+** solves this by integrating trend velocity, momentum, and adaptive thresholds into one tool.
-
----
-
-### **Q2: What’s the benefit of adding Fibonacci slope levels?**
-Fib levels act as **contextual zones** for slope retracements:
-- If slope pulls back to a fib and re-expands, it’s often a healthy continuation.
-- If slope breaks through deeper fibs, it may signal trend exhaustion.
-
----
-
-### **Q3: How do I interpret the histogram?**
-- **Near Zero:** Neutral / low momentum
-- **Strong Positive:** Bullish expansion
-- **Strong Negative:** Bearish expansion
-- **Compression + Flip:** Often a pre-breakout signal
-
----
-
-### **Q4: Can I use this intraday?**
-Yes. Works from 1-min to weekly:
-- On lower timeframes, **tighten thresholds** to avoid excessive noise.
-- On higher timeframes, **widen thresholds** for fewer but higher-quality signals.
-
----
-
-### **Q5: Why are there still one-bar flips?**
-If histogram flips back and forth quickly:
-- Increase **Sign Vote Window** or Majority %
-- Use **Reversal Block Bars** to lock direction for X bars after a flip
-- Increase **Hist Deadzone** to filter small changes
-
----
-
-### **Q6: Is this a standalone entry/exit tool?**
-No. It’s best used with:
-- Structure (support/resistance, order flow)
-- Volume confirmation
-- Risk management rules
-
----
-
-### **Q7: How do I avoid false breakouts?**
-Combine with:
-- Market context (trend direction on higher timeframe)
-- Volume confirmation
-- Avoid trading immediately before major news
-
----
-
-## Final Thoughts
-The LRS Fib Squeeze+ takes the **core logic of volatility squeeze trading** and fuses it with **trend slope analysis**, **Fibonacci context**, and **noise reduction mechanisms**.  
-Its strength lies in adaptability — whether you want a **fast, aggressive** squeeze trigger or a **slow, high-confidence** one, the tunable parameters let you match the tool to your market and style.
 
 ## License
-MIT License — use freely, share improvements!
+
+MIT — use, modify, and share freely. Please credit if you fork or publish variants.

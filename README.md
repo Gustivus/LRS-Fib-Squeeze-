@@ -77,7 +77,7 @@
 
 ## Tunable Inputs
 
-⚠**Important Note:** Use 'Close Only Mode' to prevent future-peaking which will cause backtest integrity check trust failure during automation. 
+⚠**Important Note:** Use **'Close Only Mode'** to prevent future-peaking which will cause backtest integrity check trust failure during automation. 
 
 ### Core & Visualization
 | Input | Default | What it Does | Notes |

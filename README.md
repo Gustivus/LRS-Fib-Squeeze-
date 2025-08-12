@@ -77,7 +77,7 @@
 
 ## Tunable Inputs
 
-⚠**Important Note:** Use **'Close Only Mode'** to prevent future-peeking which will cause backtest integrity check trust failure during automation. 
+⚠**Important Note:** Use **'Close Only Mode'** to prevent future-peeking which will cause backtest integrity check trust failure during automation. For bot integration, best practice is to toggle "on bar close" to ensure backtest integrity. 
 
 ### Core & Visualization
 | Input | Default | What it Does | Notes |
